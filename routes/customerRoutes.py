@@ -83,19 +83,21 @@ def login_customer(customer: LoginModel):
     try:
         # Tìm người dùng theo username
         db_customer = conn.nhaxe.customer.find_one({"username": customer.username})
-        role =  db_customer["role"]
-        if not db_customer:
-            raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
         
-        # Kiểm tra mật khẩu
-        if not verify_password(customer.password, db_customer["password"]):
-            raise HTTPException(status_code=401, detail="Sai mật khẩu")
+        # Kiểm tra nếu không tìm thấy người dùng
+        if not db_customer and not verify_password(customer.password, db_customer["password"]):
+            raise HTTPException(status_code=404, detail="Sai tên tài khoản hoặc mật khẩu!")
+        
+        # Lấy vai trò của người dùng
+        role = db_customer["role"]
         
         # Tạo JWT token
         token = signJWT(str(db_customer["_id"]), db_customer["fullname"], db_customer["role"], db_customer["username"])
         return {"access_token": token.get("access_token"), "role": role}
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail={"msg": "Sai tên tài khoản hoặc mật khẩu", "error": str(e)})
+        raise HTTPException(status_code=500, detail={"msg": "Sai tên tài khoản hoặc mật khẩu!", "error": str(e)})
+
     
 # Đổi mật khẩu
 @customerRoutes.put("/api/customer/change-password", dependencies=[Depends(jwtBearer())])
@@ -127,7 +129,7 @@ async def reset_password(id, token: str = Depends(jwtBearer())):
         db_customer = conn.nhaxe.customer.find_one({"_id": ObjectId(id)})
         if not db_customer:
             raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
-        new_hashed_password = hash_password("vnptvlg")
+        new_hashed_password = hash_password("123456789")
         conn.nhaxe.customer.update_one({"_id": ObjectId(id)}, {"$set": {"password": new_hashed_password}})
         return HTTPException(status_code = 200, detail = {"msg": "Đặt lại mật khẩu thành công"})
     except Exception as e:
@@ -138,6 +140,8 @@ async def reset_password(id, token: str = Depends(jwtBearer())):
 class ChangeRoleModel(BaseModel):
     role: str
     fullname: str
+    address: str
+    phone: str
 
 # API để thay đổi quyền người dùng
 @customerRoutes.put("/api/customer/edit/{user_id}", dependencies=[Depends(jwtBearer())])
@@ -153,7 +157,7 @@ async def change_customer_role(user_id: str, change_role_model: ChangeRoleModel,
             raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
 
         # Chỉ cho phép thay đổi thành các quyền hợp lệ
-        valid_roles = ["admin", "user bras", "user gpon"]
+        valid_roles = ["admin", "user"]
         if change_role_model.role not in valid_roles:
             raise HTTPException(status_code=400, detail="Quyền không hợp lệ")
         
@@ -161,31 +165,16 @@ async def change_customer_role(user_id: str, change_role_model: ChangeRoleModel,
         updated_role = conn.nhaxe.customer.update_one(
             {"_id": ObjectId(user_id)}, 
             {"$set": 
-                {"role": change_role_model.role, "fullname": change_role_model.fullname}})
+                {"role": change_role_model.role, 
+                 "fullname": change_role_model.fullname,
+                 "address": change_role_model.address,
+                 "phone": change_role_model.phone}})
         
         if updated_role.modified_count == 0:
             raise HTTPException(status_code = 404, detail = {"msg": "Không tìm thấy người dùng này"})
         return HTTPException(status_code=200, detail={"msg": "Thay đổi quyền thành công", "data": serializeList(conn.nhaxe.customer.find())})
     except Exception as e:
         raise HTTPException(status_code=500, detail={"msg": "Không thể thay đổi quyền", "error": str(e)})
-        
-@customerRoutes.patch("/api/customer/edit/{id}", dependencies=[Depends(jwtBearer())])
-async def edit_customerInfo(id: str, fullname: str = Query(...)):
-    try:
-        # Cập nhật thông tin fullname cho user với id tương ứng
-        updated_customer = conn.nhaxe.customer.update_one(
-            {"_id": ObjectId(id)}, 
-            {"$set": {"fullname": fullname}}
-        )
-
-        # Kiểm tra xem có bất kỳ tài liệu nào được cập nhật hay không
-        if updated_customer.modified_count == 0:
-            raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản hoặc không có thay đổi")
-
-        return {"msg": "Thay đổi thông tin thành công"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail={"msg": "Không thể thay đổi thông tin cá nhân", "error": str(e)})
-    
 
     #Xoa tai khoan
 @customerRoutes.delete("/api/customer/{id}", dependencies=[Depends(jwtBearer())])

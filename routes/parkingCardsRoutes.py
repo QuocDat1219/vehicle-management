@@ -2,8 +2,9 @@ from datetime import datetime, time
 from fastapi import APIRouter, HTTPException
 from model.parkingCardsModel import ParkingCards
 from model.pakingHistoryModel import ParkingHistory
+from model.vehicleModel import Vehicles
 from config.db import conn
-from schemas.parkingCardsSchemas import serializeDict, serializeList
+from schemas.parkingCardsSchemas import serializeDict, serializeList, serializeDictDetail
 from bson import ObjectId
 from pydantic import BaseModel
 from typing import List, Optional
@@ -12,25 +13,35 @@ parkingCardRoutes = APIRouter()
 
 @parkingCardRoutes.post('/api/card')
 def create_new_card(card: ParkingCards):
-    try:
-        # Kiểm tra các biển số trong danh sách
-        for vehicle in card.vehicle:
-            # Tìm trong cơ sở dữ liệu xem biển số đã được đăng ký chưa
-            if conn.nhaxe.parkingcard.find_one({"vehicle": vehicle}):
-                return HTTPException(status_code=404, detail={"msg": f"Biển số này đã được đăng ký."})
+    # try:
+        # Check if id_card already exists
+        if conn.nhaxe.parkingcard.find_one({"id_card": card.id_card}):
+            return HTTPException(status_code=400, detail={"msg": "Thẻ đã được đăng ký"})
         
+        # Set default values if not provided
         card_dict = card.dict()
+        card_dict["vehicle"] = card_dict.get("vehicle", [])
+        card_dict["vehicle_img"] = card_dict.get("vehicle_img","")
+        card_dict["user"] = card_dict.get("user", "")
+        card_dict["user_img"] = card_dict.get("user_img","")
+        card_dict["status"] = card_dict.get("status", "Not Use")
+        card_dict["role"] = card_dict.get("role", "default")
+        card_dict["start_date"] = card_dict.get("start_date", "")
+        card_dict["end_date"] = card_dict.get("end_date", "")
+        card_dict["entrance_time"] = card_dict.get("entrance_time", "")
+        card_dict["card_fee"] = card_dict.get("card_fee", 0)
         card_dict["created_at"] = datetime.utcnow()
-        
+
+        # Insert new card
         create_new_card = conn.nhaxe.parkingcard.insert_one(card_dict)
         
         if create_new_card:
-            return {"msg": "success", "data": serializeList(conn.nhaxe.parkingcard.find())}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail={
-            "msg": "Không thể đăng ký thẻ mới",
-            "error": str(e),
-        })
+            return serializeList(conn.nhaxe.parkingcard.find())
+    # except Exception as e:
+    #     raise HTTPException(status_code=500, detail={
+    #         "msg": "Không thể đăng ký thẻ mới",
+    #         "error": str(e),
+    #     })
 
 
 @parkingCardRoutes.get("/api/card")
@@ -40,149 +51,106 @@ def get_all_parkingcards():
 
         if not card_list:
             return []
-        return HTTPException(status_code=200, detail={
-            "msg": "success", "data": card_list
-        })
+        return card_list
     except Exception as e:
         raise HTTPException(status_code=500, detail={"msg": str(e)})
     
 @parkingCardRoutes.get("/api/card/{id}")
 def get_parkingcard_by_id(id):
     try:
-        card = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
+        card = conn.nhaxe.parkingcard.find_one({"id_card": id})
         if not card:
             return []
-        return  HTTPException(status_code=200, detail={
-            "msg": "success",
-            "data": serializeDict(card)
-            })  
+        return  card
     except Exception as e:
         raise HTTPException(status_code=500, detail={"msg": str(e)})
     
-class updateParkingCardModel(BaseModel):
-    vehicle: List[str]
-    user: str
-    status: str
-    role: str
-    entrance_time: Optional[datetime]
-
-#Xử lý xe vào    
-@parkingCardRoutes.put("/api/card/{id}/input")
-def update_in_parkingcard(id: str, card: updateParkingCardModel):
+@parkingCardRoutes.get("/api/card/{id}/detail")
+def get_parkingcard_by_id(id):
     try:
-        existing_card = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
-        if not existing_card:
-            raise HTTPException(status_code=404, detail={"msg": "Không tìm thấy thẻ xe này"})
-
-        updated_fields = {
-            "vehicle": card.vehicle,
-            "user": card.user,
-            "status": "Using",
-            "role": card.role,
-            "entrance_time": card.entrance_time or datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        }
-
-        update_result = conn.nhaxe.parkingcard.update_one(
-            {"_id": ObjectId(id)},
-            {"$set": updated_fields}
-        )
-
-    # Record entry in the parking history
-        get_data = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
-        entrance_time = get_data.get("entrance_time")
-        history_data = {
-            "vehicle": existing_card.get("vehicle"),
-            "user": existing_card.get("user"),
-            "parkingcard": str(existing_card["_id"]),
-            "status": "In",
-            "entrance_time": entrance_time,
-            "exit_time": "",
-            "fee":"",
-            "time_at": entrance_time
-        }
-        
-        # Insert the history record
-        conn.nhaxe.parkinghistory.insert_one(history_data)
-
-        if update_result.modified_count == 0:
-            raise HTTPException(status_code=400, detail={"msg": "Không có thay đổi nào được thực hiện."})
-
-        updated_card = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
-        return {"msg": "success", "data": serializeDict(updated_card)}
-
+        card = serializeDictDetail(conn.nhaxe.parkingcard.find_one({"id_card": id}))
+        if not card:
+            return []
+        return  card
     except Exception as e:
         raise HTTPException(status_code=500, detail={"msg": str(e)})
 
-# Xử lý xe lấy xe
-@parkingCardRoutes.put("/api/card/{id}/output")
-def update_out_parkingcard(id: str):
+# Model for adding new vehicles
+class VehicleUpdate(BaseModel):
+    vehicle: List[str]
+
+@parkingCardRoutes.put("/api/card/{id}/add_vehicle")
+def add_vehicle(id: str, vehicle_data: VehicleUpdate):
     try:
-        # Fetch existing parking card data
-        existing_card = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
-        if not existing_card:
-            raise HTTPException(status_code=404, detail={"msg": "Không tìm thấy thẻ xe này"})
+        # Tìm id user
+        user = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
+        if not user:
+            raise HTTPException(status_code=404, detail={"msg": "Không tìm thấy người dùng này"})
 
-        # Calculate the fee based on entrance and exit times
-        entrance_time = existing_card.get("entrance_time")
-        exit_time = datetime.utcnow()
-        
-        if entrance_time:
-            # Calculate the fee
-            day_rate = 3000
-            night_rate = 10000
-            start_day = time(6, 0)   # 6 AM
-            end_day = time(18, 0)    # 6 PM
-            
-            # Determine if the entrance was during the day or night
-            if start_day <= entrance_time.time() < end_day:
-                fee = day_rate
-            else:
-                fee = night_rate
-        else:
-            raise HTTPException(status_code=400, detail={"msg": "Không có thời gian gửi xe để tính phí."})
+        current_vehicles = user.get("vehicle", [])
 
-        # Update the parking card status to 'Not Use'
-        updated_fields = {
-            "vehicle": [],
-            "user": "",
-            "status": "Not Use",
-            "entrance_time": None,
-            "updated_at": exit_time
-        }
+        # Kiểm tra xem có biển số nào trong danh sách mới đã tồn tại trong danh sách cũ chưa
+        existing_vehicles = [v for v in vehicle_data.vehicle if v in current_vehicles]
+        if existing_vehicles:
+            raise HTTPException(status_code=400, detail={"msg": f"Phương tiện: {', '.join(existing_vehicles)} đã được đăng ký"})
 
-        # Save to history
-        parking_history = {         
-            "vehicle": existing_card["vehicle"],
-            "user": existing_card["user"],
-            "parkingcard": str(existing_card["_id"]),
-            "status": "Exited",
-            "entrance_time": entrance_time,
-            "exit_time": exit_time,
-            "fee": fee,
-            "time_at": exit_time
-        }
-        
-        #Lưu thông tin thẻ xe ra     
-        update_result = conn.nhaxe.parkingcard.update_one(
+        # Thêm các phương tiện mới vào danh sách của người dùng
+        updated_vehicles = current_vehicles + vehicle_data.vehicle
+        updated_user = conn.nhaxe.parkingcard.update_one(
             {"_id": ObjectId(id)},
-            {"$set": updated_fields}
+            {"$set": {
+                "vehicle": updated_vehicles,
+                "updated_at": datetime.utcnow()
+            }}
         )
 
-        #Lưu vào lịch sử
-        conn.nhaxe.parkinghistory.insert_one(parking_history)
-       
-        if update_result.modified_count == 0:
-            raise HTTPException(status_code=400, detail={"msg": "Không có thay đổi nào được thực hiện."})
+        if updated_user.modified_count == 0:
+            raise HTTPException(status_code=404, detail={"msg": "Không cập nhật được phương tiện"})
+        
+        return serializeList(conn.nhaxe.parkingcard.find())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"msg": f"Phương tiện đã được đăng ký"})
 
-        updated_card = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
-        return {"msg": "success", "data": serializeDict(updated_card)}
+    
+@parkingCardRoutes.put("/api/card/{id}/remove_vehicle")
+def remove_vehicle(id: str, vehicle_data: VehicleUpdate):
+    try:
+        # Tìm id user
+        user = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
+        if not user:
+            raise HTTPException(status_code=404, detail={"msg": "Không tìm thấy khách hàng này"})
 
+        current_vehicles = user.get("vehicle", [])
+
+        # Lọc ra các phương tiện cần xóa
+        vehicles_to_remove = vehicle_data.vehicle
+        updated_vehicles = [v for v in current_vehicles if v not in vehicles_to_remove]
+
+        # Nếu không có gì để xóa, trả về lỗi
+        if len(updated_vehicles) == len(current_vehicles):
+            raise HTTPException(status_code=400, detail={"msg": "Không có biển số này"})
+
+        # Cập nhật danh sách phương tiện của người dùng
+        updated_user = conn.nhaxe.parkingcard.update_one(
+            {"_id": ObjectId(id)},
+            {"$set": {
+                "vehicle": updated_vehicles,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+
+        if updated_user.modified_count == 0:
+            raise HTTPException(status_code=404, detail={"msg": "Cập nhật không thành công"})
+        
+        return serializeList(conn.nhaxe.parkingcard.find())
     except Exception as e:
         raise HTTPException(status_code=500, detail={"msg": str(e)})
 
 class updateRoleCardModel(BaseModel):
     role: str
+    user: str
+    start_date: str
+    end_date: str
     
 @parkingCardRoutes.put("/api/card/{id}/role")
 def update_role_parkingcard(id: str, card: updateRoleCardModel):
@@ -193,6 +161,9 @@ def update_role_parkingcard(id: str, card: updateRoleCardModel):
 
         updated_fields = {
             "role": card.role,
+            "user": card.user,
+            "start_date": card.start_date,
+            "end_date": card.end_date,
             "updated_at": datetime.utcnow()  
         }
 
@@ -204,8 +175,8 @@ def update_role_parkingcard(id: str, card: updateRoleCardModel):
         if update_result.modified_count == 0:
             raise HTTPException(status_code=400, detail={"msg": "Không có thay đổi nào được thực hiện."})
 
-        updated_card = conn.nhaxe.parkingcard.find_one({"_id": ObjectId(id)})
-        return HTTPException(status_code=200, detail={"msg": "success", "data": serializeDict(updated_card)})
+        updated_card = serializeList(conn.nhaxe.parkingcard.find())
+        return HTTPException(status_code=200, detail={"msg": "success", "data": updated_card})
 
     except Exception as e:
         raise HTTPException(status_code=500, detail={"msg": str(e)})
@@ -214,7 +185,7 @@ def update_role_parkingcard(id: str, card: updateRoleCardModel):
 @parkingCardRoutes.delete("/api/card/{id}")
 def delete_parking_card(id):
     try:
-        deleted_card = conn.nhaxe.parkingcard.delete_one({"_id": ObjectId(id)})
+        deleted_card = conn.nhaxe.parkingcard.delete_one({"id_card": id})
         if deleted_card.deleted_count == 0:
             return HTTPException(status_code=404, detail={"msg":"Không tìm thất thẻ xe này"})
         else:

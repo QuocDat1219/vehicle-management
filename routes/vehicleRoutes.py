@@ -11,8 +11,8 @@ vehicleRoutes = APIRouter()
 @vehicleRoutes.post("/api/vehicle")
 def register_vehicle(vehicle: Vehicles):
     try:
-        if conn.nhaxe.vehicle.find_one({"vehicle": vehicle.number_plate}):
-            raise HTTPException(status_code=400, detail={
+        if conn.nhaxe.vehicle.find_one({"number_plate": vehicle.number_plate}):
+            return HTTPException(status_code=400, detail={
                 "msg": "Biển số xe đã được đăng ký"
             })
         
@@ -40,11 +40,7 @@ def get_all_vehicle():
         if not vehicle_list:
             return []
         
-        return HTTPException(status_code=200, detail={
-            "msg": "success",
-            "data": vehicle_list
-        })
-
+        return serializeList(conn.nhaxe.vehicle.find())
     except Exception as e:
         raise HTTPException(status_code=500, detail={
             "msg": str(e)
@@ -58,15 +54,14 @@ def get_vehicle_by_id(id):
         
         if not vehicle:
             return []
-        return HTTPException(status_code=200, detail={
-            "msg": "success",
-            "data": vehicle
-        })
+        return serializeDict(vehicle)
     except Exception as e:
         raise HTTPException(status_code=500, detail={"msg": str(e)})
 
 class updateVehicleModel(BaseModel):
     number_plate: str
+    license_name: str
+    vehicle_type: str
     
 @vehicleRoutes.put('/api/vehicle/{id}')
 def update_vehicle(id: str, vehicle_data: updateVehicleModel):
@@ -83,6 +78,8 @@ def update_vehicle(id: str, vehicle_data: updateVehicleModel):
             {"_id": ObjectId(id)},
             {"$set": {
                 "number_plate": vehicle_data.number_plate,
+                "license_name": vehicle_data.license_name,
+                "vehicle_type": vehicle_data.vehicle_type,
                 "updated_at": datetime.utcnow()
             }})
         

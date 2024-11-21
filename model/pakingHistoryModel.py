@@ -4,11 +4,13 @@ from typing import Optional
 
 class ParkingHistory(BaseModel):
     vehicle: str
+    vehicle_img: str
     user: str
+    user_img: str
     parkingcard: str
     status: str
-    entrance_time: Optional[datetime] = None
-    exit_time: Optional[datetime] = None
+    entrance_time: str
+    exit_time: str
     fee: str
-    time_at: Optional[datetime] = None
+    time_at: str
     
