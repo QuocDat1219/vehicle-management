@@ -4,7 +4,7 @@ import sys
 import torch
 import numpy as np
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pydantic import BaseModel
 from typing import List, Optional
 from bson import ObjectId
@@ -72,29 +72,9 @@ class Detection:
 
 weights_path = os.path.join(os.path.dirname(__file__), 'char.pt')
 detector = Detection(weights_path=weights_path, size=(640, 640), device="cpu", iou_thres=0.5, conf_thres=0.1)
-
-
-@vehicleDetectionRoutes.put("/api/card/detect")
-async def manage_parkingcard(id_card: str = Form(...), entrance_time: str = Form(...), file: UploadFile = File(...)):
-    try:
-        existing_card = conn.nhaxe.parkingcard.find_one({"id_card": id_card})
-        if not existing_card:
-            return HTTPException(status_code=404, detail={"msg": "Thẻ chưa được đăng ký"})
-        # Kiểm tra trạng thái thẻ
-        if existing_card["status"] == "Using":
-            # Nếu thẻ đang sử dụng, gọi hàm xe ra
-            return await update_out_parkingcard(id_card=id_card, entrance_time=entrance_time, file=file)
-        elif existing_card["status"] == "Not Use":
-            # Nếu thẻ chưa sử dụng, gọi hàm xe vào
-            return await upload_license_plate(id_card=id_card, entrance_time=entrance_time, file=file)
-        else:
-            return HTTPException(status_code=400, detail={"msg": "Trạng thái thẻ không hợp lệ."})
-
-    except Exception as e:
-        return HTTPException(status_code=500, detail={"msg": str(e), "data":"aaaaaaa"})
     
 @vehicleDetectionRoutes.put("/api/card/entry")
-async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Form(...), file: UploadFile = File(...)):
+async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Form(...),vehicle_img: str = Form(...), user_img: str = Form(...), file: UploadFile = File(...)):
     try:
         # Đọc ảnh từ file
         # image = np.frombuffer(await file.read(), np.uint8)
@@ -103,7 +83,6 @@ async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Fo
         # # Phát hiện biển số xe
         # detected_plate = detector.detect(img)
         print("xe vàoooooooooooooooooooooooooooooooo")
-        print(entrance_time)
         #detected_plate = randint(000000, 999999)
         detected_plate = str(945477)
         if not detected_plate:
@@ -111,12 +90,10 @@ async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Fo
    
         # Tìm thông tin thẻ (id_card) trong cơ sở dữ liệu
         parking_card = conn.nhaxe.parkingcard.find_one({"id_card": id_card})
-        user_card = None
+        vehicle = None
         # Cập nhật thông tin thẻ tùy thuộc vào role
         if parking_card.get("role") == "Client":
         #Tìm khách hàng
-         
-            user_card = conn.nhaxe.user.find_one({"_id": ObjectId(parking_card["user"])})
             # Nếu thẻ có role là "client", cập nhật thông tin user (nếu có)
             vehicle = conn.nhaxe.vehicle.find_one({"number_plate": detected_plate})
             if vehicle:
@@ -124,16 +101,19 @@ async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Fo
             else:
                 return HTTPException(status_code=400, detail="Phương tiện chưa được đăng ký cho thẻ khách hàng!")
         else:
-            # Nếu thẻ có role là "normal", gán user là "Rỗng"
+
             # Kiểm tra nếu biển số tồn tại trong cơ sở dữ liệu
             vehicle = conn.nhaxe.vehicle.find_one({"number_plate": detected_plate})
             if vehicle:
                 vehicle_id = vehicle["_id"]
             else:
                 # Nếu không có phương tiện, thêm mới
-                vehicle_id = conn.nhaxe.vehicle.insert_one({"number_plate": detected_plate}).inserted_id
+                vehicle_id = conn.nhaxe.vehicle.insert_one({"number_plate": detected_plate,"vehicle_type": "Motocycle"}).inserted_id
 
         # Cập nhật danh sách phương tiện vào thẻ
+        parking_card["status"] = "Using"
+        parking_card["vehicle_img"] =  vehicle_img
+        parking_card["user_img"] =  user_img
         parking_card["status"] = "Using"
         parking_card["vehicle"] = list(set(parking_card.get("vehicle", []) + [str(vehicle_id)]))  # Đảm bảo không trùng lặp
         parking_card["entrance_time"] = entrance_time 
@@ -147,8 +127,10 @@ async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Fo
 
         # Thêm thông tin vào lịch sử
         conn.nhaxe.parkinghistory.insert_one({
-            "vehicle": str(vehicle_id),
-            "user": parking_card.get("user", ["Rỗng"])[0],  # Lấy tên người dùng đầu tiên trong danh sách
+            "vehicle": str(vehicle["_id"]),
+            "vehicle_img": parking_card["vehicle_img"],
+            "user": parking_card.get("user") or "",  # Lấy tên người dùng đầu tiên trong danh sách
+            "user_img": parking_card["user_img"],
             "parkingcard": str(parking_card["_id"]),
             "status": "In",
             "entrance_time": parking_card.get("entrance_time"),
@@ -162,9 +144,9 @@ async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Fo
             return HTTPException(status_code=400, detail="Không nhận diện được thẻ hoặc phương tiện")
 
         response_result = {
-            "user_card": user_card.get("full_name") if user_card else None,
             "vehicle_plate": detected_plate,
-            "entrance_time": entrance_time
+            "entrance_time": entrance_time,
+            "vehicle_img": parking_card["vehicle_img"]
         }
         return HTTPException(status_code=200, detail={"msg": "Entry Successfully", "data": response_result})
 
@@ -172,83 +154,101 @@ async def upload_license_plate(id_card: str = Form(...), entrance_time: str = Fo
         return HTTPException(status_code=500, detail=str(e))
     
 @vehicleDetectionRoutes.put("/api/card/exit")
-async def update_out_parkingcard(id_card: str = Form(...), entrance_time: str = Form(...), file: UploadFile = File(...)):
+async def update_out_parkingcard(
+    id_card: str = Form(...),
+    exit_time: str = Form(...),
+    vehicle_img: str = Form(...),
+    user_img: str = Form(...),
+    file: UploadFile = File(...)
+):
     try:
-        # Phát hiện biển số xe (giả lập)
         print("xe raaaaaaa")
         detected_plate = str(945477)
 
         if not detected_plate:
             return HTTPException(status_code=400, detail="Không phát hiện được phương tiện.")
 
-        # Tìm thông tin thẻ (id_card) trong cơ sở dữ liệu
         parking_card = conn.nhaxe.parkingcard.find_one({"id_card": id_card})
         if not parking_card:
             return HTTPException(status_code=404, detail="Không tìm thấy thông tin thẻ.")
-
-        # Chuyển entrance_time (chuỗi ISO) thành đối tượng datetime
-        entrance_time_fee = parking_card.get("entrance_time")
-        if entrance_time_fee:
-            # Chuyển entrance_time từ chuỗi ISO thành datetime
-            entrance_time_fee = datetime.fromisoformat(entrance_time_fee.replace("Z", "+00:00"))
-            print(entrance_time_fee)
-            # Tính phí
-            day_rate = 3000
-            night_rate = 10000
-            start_day = time(6, 0)  # 6 AM
-            end_day = time(18, 0)   # 6 PM
-
-            if start_day <= entrance_time_fee.time() < end_day:
-                fee = day_rate
-            else:
-                fee = night_rate
-        else:
+        vehicle_img_entry = parking_card.get("vehicle_img")
+        entrance_time_str = parking_card.get("entrance_time")
+        if not entrance_time_str:
             return HTTPException(status_code=400, detail="Không có thời gian gửi xe để tính phí.")
 
-        # Kiểm tra phương tiện đã được phát hiện
+        entrance_time = datetime.strptime(entrance_time_str, "%d/%m/%Y %H:%M:%S")
+        exit_time = datetime.strptime(exit_time, "%d/%m/%Y %H:%M:%S")
+
         vehicle = conn.nhaxe.vehicle.find_one({"number_plate": detected_plate})
         if not vehicle:
             return HTTPException(status_code=404, detail="Phương tiện không tồn tại trong cơ sở dữ liệu.")
 
-        user_card = None  # Khởi tạo mặc định
-        registered_vehicles = parking_card.get("vehicle", [])  # Khởi tạo danh sách phương tiện mặc định
+        vehicle_type = vehicle.get("vehicle_type")
+        if not vehicle_type:
+            return HTTPException(status_code=400, detail="Không tìm thấy loại phương tiện.")
 
-        # Kiểm tra role và phương tiện
-        if parking_card.get("role") == "Client":
-            # Tìm khách hàng
-            user_card = conn.nhaxe.user.find_one({"_id": ObjectId(parking_card["user"])})
-            # Kiểm tra phương tiện phát hiện có trong danh sách phương tiện đã đăng ký
-            if str(vehicle["_id"]) not in registered_vehicles:
-                return HTTPException(status_code=400, detail="Phương tiện không trùng với phương tiện đã đăng ký trên thẻ!")
-            fee = fee / 2  # Giảm phí cho 'Client'
+        fee_info = conn.nhaxe.fee.find_one({"vehicle_type": vehicle_type})
+        if not fee_info:
+            return HTTPException(status_code=404, detail="Không tìm thấy thông tin phí.")
 
-        elif parking_card.get("role") == "Normal":
-            # Nếu thẻ là "Normal", chỉ cho phép phương tiện trùng với phương tiện đầu tiên
-            if registered_vehicles and str(vehicle["_id"]) != registered_vehicles[0]:
-                return HTTPException(status_code=400, detail="Phương tiện không trùng với phương tiện đã đăng ký trên thẻ!")
-            # Xóa phương tiện nếu thẻ là "Normal"
-            if registered_vehicles:
-                conn.nhaxe.vehicle.delete_one({"_id": ObjectId(registered_vehicles[0])})
-            parking_card["vehicle"] = []  # Xóa danh sách phương tiện
+        day_time = datetime.strptime(fee_info["day_time"], "%H:%M:%S").time()
+        night_time = datetime.strptime(fee_info["night_time"], "%H:%M:%S").time()
+        fee_normal = fee_info["fee_normal"]
+        fee_night = fee_info["fee_night"]
+        fee_day = fee_info["fee_day"]
 
-        # Cập nhật trạng thái thẻ
-        parking_card["status"] = "Not Use"  # Đổi trạng thái thẻ
+        # Tính phí
+        fee = 0
+        entrance_hour = entrance_time.time()
+        exit_hour = exit_time.time()
+
+        # Nếu tổng thời gian lớn hơn hoặc bằng 24 giờ, áp dụng phí ngày
+        if (exit_time - entrance_time).total_seconds() / 3600 >= 24:
+            fee = fee_day
+        else:
+            if entrance_hour < day_time:  # Xe vào ban đêm
+                if exit_hour < day_time:  # Xe ra cũng ban đêm
+                    fee = fee_night
+                else:  # Xe vào ban đêm nhưng ra ban ngày
+                    # time_at_night = (datetime.combine(entrance_time.date(), day_time) - entrance_time).total_seconds() / 3600
+                    # time_at_day = (exit_time - datetime.combine(exit_time.date(), day_time)).total_seconds() / 3600
+                    fee = fee_night + fee_normal
+            elif entrance_hour >= day_time and entrance_hour < night_time:  # Xe vào ban ngày
+                if exit_hour < night_time:  # Xe ra cũng ban ngày
+                    fee = fee_normal
+                else:  # Xe vào ban ngày nhưng ra ban đêm
+                    # time_at_day = (datetime.combine(entrance_time.date(), night_time) - entrance_time).total_seconds() / 3600
+                    # time_at_night = (exit_time - datetime.combine(exit_time.date(), night_time)).total_seconds() / 3600
+                    fee = fee_normal + fee_night
+            else:  # Xe vào ban đêm
+                if exit_hour < day_time:  # Xe ra cũng ban đêm
+                    fee = fee_night
+                else:  # Xe vào ban đêm nhưng ra ban ngày
+                    # time_at_night = (datetime.combine(entrance_time.date() + timedelta(days=1), day_time) - entrance_time).total_seconds() / 3600
+                    # time_at_day = (exit_time - datetime.combine(exit_time.date(), day_time)).total_seconds() / 3600
+                    fee = fee_night + fee_normal
+
+
+        parking_card["status"] = "Not Use"
         parking_card["entrance_time"] = None
         parking_card["updated_at"] = datetime.utcnow()
 
-        # Thêm thông tin vào lịch sử
         conn.nhaxe.parkinghistory.insert_one({
             "vehicle": str(vehicle["_id"]),
-            "user": parking_card.get("user", "Rỗng"),
+            "vehicle_img": vehicle_img,
+            "vehicle_img_in": parking_card["vehicle_img"],
+            "user": str(parking_card.get("user", "")),
+            "user_img": vehicle_img,
+            "user_img_in": parking_card["user_img"],
             "parkingcard": str(parking_card["_id"]),
             "status": "Out",
-            "entrance_time": entrance_time_fee,
-            "exit_time": entrance_time,
+            "entrance_time": entrance_time_str,
+            "exit_time": exit_time.strftime("%d/%m/%Y %H:%M:%S"),
             "fee": fee,
-            "time_at": entrance_time
+            "time_at": datetime.utcnow()
         })
-
-        # Cập nhật lại thẻ trong cơ sở dữ liệu
+        parking_card["vehicle_img"] = None
+        parking_card["user_img"] = None
         update_result = conn.nhaxe.parkingcard.update_one(
             {"id_card": id_card},
             {"$set": parking_card}
@@ -256,16 +256,18 @@ async def update_out_parkingcard(id_card: str = Form(...), entrance_time: str = 
         if update_result.modified_count == 0:
             return HTTPException(status_code=400, detail="Không nhận diện được thẻ hoặc phương tiện.")
 
-        # Kết quả trả về
         response_result = {
-            "user_card": user_card.get("full_name") if user_card else None,
-            "vehicle_plate": detected_plate,
-            "entrance_time": entrance_time_fee.isoformat(),
-            "exit_time": entrance_time,
+            "vehicle_plate_exit": detected_plate,
+            "vehicle_plate_entry": vehicle["number_plate"],
+            "vehicle_img": vehicle_img_entry,
+            "entrance_time": entrance_time_str,
+            "exit_time": exit_time.strftime("%d/%m/%Y %H:%M:%S"),
             "fee": fee
         }
+
         return HTTPException(status_code=200, detail={"msg": "Exited Successfully", "data": response_result})
 
     except Exception as e:
         return HTTPException(status_code=500, detail=str(e))
+
 

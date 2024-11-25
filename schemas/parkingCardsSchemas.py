@@ -35,6 +35,7 @@ def serializeDictDetail(a) -> dict:
 
         # Lấy dữ liệu xe từ bảng vehicle
         vehicle_data = conn.nhaxe.vehicle.find_one({'_id': vehicle_obj_id})
+        print(vehicle_data)
         if vehicle_data:
             vehicles.append({
                 'number_plate': vehicle_data.get('number_plate', None),

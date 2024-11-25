@@ -9,7 +9,7 @@ class ParkingCards(BaseModel):
     user: str 
     user_img: Optional[str] = ""
     status: str = Field(default="Not Use")  #Trạng thái xem thẻ có đang được gửi xe hay không gửi
-    role: str = Field(default="Normal")    #Quyền cho biết thẻ là đăng ký hoặc thẻ thường
+    role: str = Field(default="Normal")    #Quyền cho biết thẻ là tháng hoặc thẻ thường
     start_date: str
     end_date: str
     entrance_time: Optional[str] = ""
