@@ -1,12 +1,12 @@
 from pydantic import BaseModel, Field
-from datetime import datetime, date
-from typing import Optional, List
+from datetime import time
+from typing import Optional
 
-class User(BaseModel):
-    moto_fee_day: int
-    moto_fee_night: int
-    car_fee_day: int
-    car_fee_night: int
-    vehicle: List[str]  #Xe của cá nhân
-    created_at: Optional[datetime] = None  # Optional field for created_at
-    updated_at: Optional[datetime] = None  # Optional field for created_at
+class FeeVehicle(BaseModel):
+    vehicle_type: str
+    day_time: time  # Thời gian ban ngày (hh:mm:ss)
+    night_time: time  # Thời gian ban đêm (hh:mm:ss)
+    fee_normal: int  # Phí thông thường
+    fee_night: int  # Phí ban đêm
+    fee_day: int  # Phí cả ngày
+    fee_surcharge: int  # Phụ phí

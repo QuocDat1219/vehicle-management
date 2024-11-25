@@ -56,9 +56,9 @@ def get_all_parkingcards():
         raise HTTPException(status_code=500, detail={"msg": str(e)})
     
 @parkingCardRoutes.get("/api/card/{id}")
-def get_parkingcard_by_id(id):
+def get_parkingcard_by_id(id: str):
     try:
-        card = conn.nhaxe.parkingcard.find_one({"id_card": id})
+        card = serializeDict(conn.nhaxe.parkingcard.find_one({"id_card": id}))
         if not card:
             return []
         return  card

@@ -7,6 +7,8 @@ from routes.parkingCardsRoutes import parkingCardRoutes
 from routes.vehicleRoutes import vehicleRoutes
 from routes.customerRoutes import customerRoutes
 from service.vehicleDetectionService import vehicleDetectionRoutes 
+from routes.feeRoutes import feeRoutes
+from routes.parkingHistoryRoutes import ParkingHistoryRoutes
 
 app = FastAPI()
 
@@ -25,6 +27,8 @@ app.include_router(parkingCardRoutes)
 app.include_router(vehicleRoutes)
 app.include_router(customerRoutes)
 app.include_router(vehicleDetectionRoutes)
+app.include_router(feeRoutes)
+app.include_router(ParkingHistoryRoutes)
 
 if __name__ == "__main__":
     import uvicorn
